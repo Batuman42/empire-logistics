@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, render_template, redirect, url_for, Response
+import os
 import sqlite3
 import random
 import io
@@ -7,9 +8,14 @@ from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
+DATABASE_PATH = os.environ.get("DATABASE_PATH", "lastmile.db")
+VEHICLE_TYPES = ["🚲 Lastenrad", "🚐 Sprinter", "🚚 LKW", "🚁 Drohne", "🚆 Güterzug"]
+PRIORITIES = ["Normal", "VIP"]
+MAX_FIELD_LENGTH = 200
+
 # --- 1. BASIS SETUP ---
 def get_db_connection():
-    conn = sqlite3.connect('lastmile.db', check_same_thread=False)
+    conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -43,8 +49,10 @@ def upgrade_db():
         ("current_lat", "REAL"), ("current_lon", "REAL")
     ]
     for col, type_info in columns:
-        try: db.execute(f"ALTER TABLE sendungen ADD COLUMN {col} {type_info}")
-        except: pass
+        try:
+            db.execute(f"ALTER TABLE sendungen ADD COLUMN {col} {type_info}")
+        except sqlite3.OperationalError:
+            pass  # column already exists
     db.commit()
     db.close()
 
@@ -102,8 +110,8 @@ def add_delivery(kunde, adresse, v_type, prio):
 @app.route('/ai_auto_dispatch', methods=['POST'])
 def ai_dispatch():
     wetter = random.choice(["Sonnig", "Regen", "Schnee", "Sturm"])
-    choices = ["🚲 Lastenrad", "🚐 Sprinter", "🚚 LKW", "🚁 Drohne", "🚆 Güterzug"]
-    
+    choices = VEHICLE_TYPES
+
     best_v = None
     best_score = -1
     
@@ -119,6 +127,34 @@ def ai_dispatch():
     add_delivery("AI-Learning-Agent", "Dynamic Hub", best_v, "Normal")
     return jsonify({"reply": f"KI lernt: Bei {wetter} ist {best_v} am effizientesten (Score: {best_score:.2f}). Mission gestartet!"})
 
+@app.route('/')
+def index():
+    return redirect(url_for('dashboard'))
+
+@app.route('/add_manual', methods=['POST'])
+def add_manual():
+    kunde = request.form.get('kunde', '').strip()[:MAX_FIELD_LENGTH]
+    adresse = request.form.get('adresse', '').strip()[:MAX_FIELD_LENGTH]
+    v_type = request.form.get('type', '')
+    prio = request.form.get('priority', 'Normal')
+    if not kunde or not adresse or v_type not in VEHICLE_TYPES or prio not in PRIORITIES:
+        return jsonify({"error": "Ungültige Eingabe"}), 400
+    add_delivery(kunde, adresse, v_type, prio)
+    return redirect(url_for('dashboard'))
+
+@app.route('/export')
+def export():
+    db = get_db_connection()
+    rows = db.execute('SELECT id, kunde, adresse, status, type, priority, distanz, maut, profit, wetter FROM sendungen ORDER BY id').fetchall()
+    db.close()
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, delimiter=';')
+    writer.writerow(['id', 'kunde', 'adresse', 'status', 'type', 'priority', 'distanz', 'maut', 'profit', 'wetter'])
+    writer.writerows([tuple(r) for r in rows])
+    filename = f"sendungen_{datetime.now():%Y-%m-%d}.csv"
+    return Response(buffer.getvalue(), mimetype='text/csv',
+                    headers={'Content-Disposition': f'attachment; filename={filename}'})
+
 @app.route('/dashboard')
 def dashboard():
     db = get_db_connection()
@@ -129,7 +165,5 @@ def dashboard():
     db.close()
     return render_template('index.html', sendungen=sendungen, total_km=total_km, active=len(sendungen), profit=profit, total_maut=total_maut)
 
-# ... Restliche Routes (add_manual, export) wie gehabt ...
-
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=os.environ.get("FLASK_DEBUG") == "1")
