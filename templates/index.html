@@ -187,11 +187,14 @@
         item.className = 'radar-item';
         item.innerHTML = `
             <div class="d-flex justify-content-between align-items-center mb-1">
-                <div><span class="fw-800">${label}</span> <span class="weather-chip ms-1">${wetter}</span></div>
-                <button class="btn btn-link btn-sm p-0 fw-bold text-accent" onclick="showInvoice('${label}','${profit}','${maut}','${distanz}','${wetter}')">RECEIPT</button>
+                <div><span class="fw-800 js-label"></span> <span class="weather-chip ms-1 js-wetter"></span></div>
+                <button class="btn btn-link btn-sm p-0 fw-bold text-accent js-receipt">RECEIPT</button>
             </div>
             <div class="progress"><div id="bar-${id}" class="progress-bar" style="width: 0%"></div></div>
         `;
+        item.querySelector('.js-label').textContent = label;
+        item.querySelector('.js-wetter').textContent = wetter;
+        item.querySelector('.js-receipt').addEventListener('click', () => showInvoice(label, profit, maut, distanz, wetter));
         radar.prepend(item);
 
         let progress = 0;
@@ -206,14 +209,16 @@
                 document.getElementById(`bar-${id}`).style.width = (progress * 100) + "%";
                 requestAnimationFrame(move);
             } else {
-                marker.bindPopup(`<b>${label}</b> angekommen!`).openPopup();
+                const popup = document.createElement('span');
+                popup.textContent = `${label} angekommen!`;
+                marker.bindPopup(popup).openPopup();
             }
         }
         move();
     }
 
     {% for s in sendungen %}
-        animateMission({{ s['id'] }}, {{ s['lat_ziel'] }}, {{ s['lon_ziel'] }}, "{{ s['kunde'] }}", "{{ s['type'] }}", "{{ s['profit'] }}", "{{ s['maut'] }}", "{{ s['distanz'] }}", {{ s['speed_factor'] }}, "{{ s['wetter'] }}");
+        animateMission({{ s['id'] }}, {{ s['lat_ziel'] }}, {{ s['lon_ziel'] }}, {{ s['kunde']|tojson }}, {{ s['type']|tojson }}, {{ s['profit']|tojson }}, {{ s['maut']|tojson }}, {{ s['distanz']|tojson }}, {{ s['speed_factor'] }}, {{ s['wetter']|tojson }});
     {% endfor %}
 
     function showInvoice(kunde, profit, maut, dist, wetter) {
@@ -221,13 +226,14 @@
         const content = document.getElementById('invoice-body');
         content.innerHTML = `
             <div class="text-center mb-4"><h3>💎 Empire Receipt</h3></div>
-            <p>Client: <b>${kunde}</b><br>Distance: <b>${dist} km</b></p>
+            <p>Client: <b class="js-kunde"></b><br>Distance: <b>${parseInt(dist, 10)} km</b></p>
             <hr>
             <div class="d-flex justify-content-between"><span>Profit:</span><span>${profit} €</span></div>
             <div class="d-flex justify-content-between"><span>Toll:</span><span>+ ${maut} €</span></div>
             <div class="d-flex justify-content-between fw-bold pt-2 border-top"><span>TOTAL:</span><span>${total} €</span></div>
             <button class="btn btn-dark w-100 mt-4 rounded-pill" onclick="window.print()">PRINT</button>
         `;
+        content.querySelector('.js-kunde').textContent = kunde;
         new bootstrap.Modal(document.getElementById('invoiceModal')).show();
     }
 </script>
